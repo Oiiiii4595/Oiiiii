@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ml">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1a1322">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Oiiiii</title>
+<style>
+:root{--bg:#1a1322;--panel:#251a30;--theirs:#2f2340;--mine:#d4546f;--text:#f4eaf1;--muted:#a493b0;--ok:#ffd9e2}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,"Noto Sans Malayalam",Roboto,sans-serif}
+[hidden]{display:none!important}
+button{font:inherit;color:inherit;border:0;cursor:pointer}
+#auth{min-height:100%;display:flex;flex-direction:column;justify-content:center;gap:12px;padding:24px;max-width:420px;margin:auto}
+#auth h1{font:600 2.4rem/1 Georgia,serif;margin:0 0 8px;letter-spacing:.02em}
+#auth p{margin:0 0 8px;color:var(--muted)}
+input{width:100%;padding:14px;border-radius:12px;border:1px solid #3d2e4d;background:var(--panel);color:var(--text);font:inherit}
+input:focus-visible,button:focus-visible{outline:2px solid var(--mine);outline-offset:2px}
+.btn{padding:14px;border-radius:12px;background:var(--mine);font-weight:600}
+.btn.alt{background:transparent;border:1px solid #3d2e4d;color:var(--muted)}
+#err{color:#ff9aa9;min-height:1.4em;font-size:.9rem}
+#chat{height:100dvh;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
+header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--panel)}
+header b{font:600 1.2rem Georgia,serif}
+header button{background:transparent;color:var(--muted);padding:6px 8px;font-size:.85rem}
+#list{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px}
+.m{max-width:78%;padding:9px 12px;border-radius:16px;word-wrap:break-word;white-space:pre-wrap}
+.m.me{align-self:flex-end;background:var(--mine);border-bottom-right-radius:4px}
+.m.them{align-self:flex-start;background:var(--theirs);border-bottom-left-radius:4px}
+.m small{display:block;text-align:right;font-size:.7rem;opacity:.8;margin-top:2px}
+.m.seen small{color:var(--ok);opacity:1}
+.m.miss{background:transparent;border:1px dashed var(--mine);color:var(--ok);font-style:italic}
+#note{padding:20px;text-align:center;color:var(--muted)}
+form{display:flex;gap:8px;align-items:center;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--panel)}
+form input{flex:1;border-radius:22px}
+#send{width:46px;height:46px;border-radius:50%;background:var(--mine);font-size:1.2rem;flex:none}
+#miss{width:46px;height:46px;border-radius:50%;background:transparent;border:2px solid var(--mine);font-size:1.3rem;flex:none;animation:beat 2.4s ease-in-out infinite}
+#miss:active{background:var(--mine)}
+@keyframes beat{0%,100%{transform:scale(1)}8%{transform:scale(1.14)}16%{transform:scale(1)}24%{transform:scale(1.1)}32%{transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){#miss{animation:none}}
+#toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 64px);transform:translateX(-50%);background:var(--mine);padding:10px 18px;border-radius:20px;font-weight:600}
+</style>
+</head>
+<body>
+<main id="auth" hidden>
+  <h1>Oiiiii</h1>
+  <p>നമ്മൾ രണ്ടുപേർക്ക് മാത്രം.</p>
+  <input id="em" type="email" placeholder="ഇമെയിൽ" autocomplete="username">
+  <input id="pw" type="password" placeholder="പാസ്‌വേഡ്" autocomplete="current-password">
+  <button class="btn" id="login">ലോഗിൻ</button>
+  <button class="btn alt" id="signup">പുതിയ അക്കൗണ്ട് ഉണ്ടാക്കുക</button>
+  <div id="err" role="alert"></div>
+</main>
+
+<section id="chat" hidden>
+  <header><b>Oiiiii</b><span><button id="idbtn">എന്റെ ഐഡി</button><button id="out">പുറത്തുകടക്കുക</button></span></header>
+  <div id="list"></div>
+  <form id="f">
+    <button type="button" id="miss" aria-label="മിസ് യു അയക്കുക">💗</button>
+    <input id="msg" placeholder="സന്ദേശം" autocomplete="off">
+    <button id="send" aria-label="അയക്കുക">➤</button>
+  </form>
+</section>
+<div id="toast" hidden></div>
+
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore,collection,addDoc,query,orderBy,limit,onSnapshot,updateDoc,doc,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const app=initializeApp({
+  apiKey:"AIzaSyCZ7hKl47t37boj-trqSJ8mALwpjrANPcY",
+  authDomain:"oiiiii-7b86d.firebaseapp.com",
+  projectId:"oiiiii-7b86d",
+  storageBucket:"oiiiii-7b86d.firebasestorage.app",
+  messagingSenderId:"35093737465",
+  appId:"1:35093737465:web:af00df30b9dc686d691728"
+});
+const auth=getAuth(app), db=getFirestore(app);
+const $=id=>document.getElementById(id);
+let me=null, unsub=null, first=true;
+
+if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+
+function say(t){const e=$("toast");e.textContent=t;e.hidden=false;setTimeout(()=>e.hidden=true,3500)}
+function ding(){try{const c=new AudioContext(),o=c.createOscillator(),g=c.createGain();o.frequency.value=660;o.connect(g);g.connect(c.destination);g.gain.setValueAtTime(.15,c.currentTime);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+1.2);o.start();o.stop(c.currentTime+1.2)}catch(e){}}
+const fail=e=>{$("err").textContent="പരാജയപ്പെട്ടു: "+(e.code||e.message)};
+
+$("login").onclick=()=>signInWithEmailAndPassword(auth,$("em").value.trim(),$("pw").value).catch(fail);
+$("signup").onclick=()=>createUserWithEmailAndPassword(auth,$("em").value.trim(),$("pw").value).catch(fail);
+$("out").onclick=()=>signOut(auth);
+$("idbtn").onclick=async()=>{try{await navigator.clipboard.writeText(me.uid);say("ഐഡി കോപ്പി ചെയ്തു")}catch(e){prompt("നിങ്ങളുടെ ഐഡി:",me.uid)}};
+
+onAuthStateChanged(auth,u=>{
+  me=u; $("auth").hidden=!!u; $("chat").hidden=!u;
+  if(unsub){unsub();unsub=null}
+  if(u){first=true;start()}
+});
+
+function start(){
+  const q=query(collection(db,"chat"),orderBy("at"),limit(300));
+  unsub=onSnapshot(q,snap=>{
+    const list=$("list"); list.innerHTML="";
+    snap.forEach(d=>{
+      const m=d.data(), mine=m.from===me.uid, el=document.createElement("div");
+      if(m.type==="miss"){el.className="m miss "+(mine?"me":"them");el.textContent=mine?"💗 മിസ് യു അയച്ചു":"💗 മിസ് യു"}
+      else{
+        el.className="m "+(mine?"me":"them")+(m.seen?" seen":"");
+        el.append(document.createTextNode(m.text));
+        if(mine){const s=document.createElement("small");s.textContent=m.seen?"✓✓":"✓";el.append(s)}
+      }
+      list.append(el);
+      if(!mine&&!m.seen&&!d.metadata.hasPendingWrites&&document.visibilityState==="visible"){
+        updateDoc(doc(db,"chat",d.id),{seen:serverTimestamp()}).catch(()=>{});
+      }
+    });
+    if(!snap.size){list.innerHTML='<div id="note">ആദ്യത്തെ സന്ദേശം അയക്കൂ.</div>'}
+    list.scrollTop=list.scrollHeight;
+    if(!first){
+      snap.docChanges().forEach(c=>{
+        const m=c.doc.data();
+        if(c.type==="added"&&m.type==="miss"&&m.from!==me.uid&&!c.doc.metadata.hasPendingWrites){
+          navigator.vibrate&&navigator.vibrate([200,100,200,100,500]); ding(); say("💗 മിസ് യു");
+        }
+      });
+    }
+    first=false;
+  },e=>{
+    $("list").innerHTML='<div id="note">ഡാറ്റ കാണാൻ അനുവാദമില്ല. Firebase rules സെറ്റ് ചെയ്യണം.</div>';
+    console.error(e);
+  });
+}
+
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&me){first=false}});
+
+$("f").onsubmit=async e=>{
+  e.preventDefault();
+  const t=$("msg").value.trim(); if(!t) return;
+  $("msg").value="";
+  addDoc(collection(db,"chat"),{type:"text",text:t,from:me.uid,at:serverTimestamp(),seen:null}).catch(()=>say("അയക്കാൻ പറ്റിയില്ല"));
+};
+$("miss").onclick=()=>{
+  navigator.vibrate&&navigator.vibrate(60);
+  addDoc(collection(db,"chat"),{type:"miss",text:"",from:me.uid,at:serverTimestamp(),seen:null}).then(()=>say("മിസ് യു അയച്ചു 💗")).catch(()=>say("അയക്കാൻ പറ്റിയില്ല"));
+};
+</script>
+</body>
+</html>
