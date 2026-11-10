@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ml">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -42,34 +42,44 @@ form input{flex:1;border-radius:22px}
 @keyframes beat{0%,100%{transform:scale(1)}8%{transform:scale(1.14)}16%{transform:scale(1)}24%{transform:scale(1.1)}32%{transform:scale(1)}}
 @media (prefers-reduced-motion:reduce){#miss{animation:none}}
 #toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 64px);transform:translateX(-50%);background:var(--mine);padding:10px 18px;border-radius:20px;font-weight:600}
+#ring,#call{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;text-align:center;background:rgba(10,6,16,.97)}
+#call{padding:0;gap:0;justify-content:flex-end;background:#000}
+#rv{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#lv{position:absolute;top:calc(env(safe-area-inset-top) + 12px);right:12px;width:96px;height:128px;object-fit:cover;border-radius:12px;background:#222;z-index:2}
+#ct{position:absolute;top:45%;width:100%;z-index:1;color:#c9b8d6}
+.bar{position:relative;z-index:2;display:flex;gap:16px;padding:20px 20px calc(24px + env(safe-area-inset-bottom))}
+.bar button{padding:14px 26px;border-radius:30px;background:#33263f;font-weight:600}
+.bar .ans,.bar .end{background:var(--mine)}
 </style>
 </head>
 <body>
 <main id="auth" hidden>
   <h1>Oiiiii</h1>
-  <p>നമ്മൾ രണ്ടുപേർക്ക് മാത്രം.</p>
-  <input id="em" type="email" placeholder="ഇമെയിൽ" autocomplete="username">
-  <input id="pw" type="password" placeholder="പാസ്‌വേഡ്" autocomplete="current-password">
-  <button class="btn" id="login">ലോഗിൻ</button>
-  <button class="btn alt" id="signup">പുതിയ അക്കൗണ്ട് ഉണ്ടാക്കുക</button>
+  <p>Just the two of us.</p>
+  <input id="em" type="email" placeholder="Email" autocomplete="username">
+  <input id="pw" type="password" placeholder="Password" autocomplete="current-password">
+  <button class="btn" id="login">Log in</button>
+  <button class="btn alt" id="signup">Create account</button>
   <div id="err" role="alert"></div>
 </main>
 
 <section id="chat" hidden>
-  <header><b>Oiiiii</b><span><button id="idbtn">എന്റെ ഐഡി</button><button id="out">പുറത്തുകടക്കുക</button></span></header>
+  <header><b>Oiiiii</b><span><button id="vc" aria-label="Voice call">📞</button><button id="vd" aria-label="Video call">🎥</button><button id="idbtn">My ID</button><button id="out">Log out</button></span></header>
   <div id="list"></div>
   <form id="f">
-    <button type="button" id="miss" aria-label="മിസ് യു അയക്കുക">💗</button>
-    <input id="msg" placeholder="സന്ദേശം" autocomplete="off">
-    <button id="send" aria-label="അയക്കുക">➤</button>
+    <button type="button" id="miss" aria-label="Send miss you">💗</button>
+    <input id="msg" placeholder="Message" autocomplete="off">
+    <button id="send" aria-label="Send">➤</button>
   </form>
 </section>
+<div id="ring" hidden><h2 id="rt">Incoming call</h2><div class="bar"><button id="dec">Decline</button><button id="ans" class="ans">Answer</button></div></div>
+<div id="call" hidden><video id="rv" autoplay playsinline></video><video id="lv" autoplay playsinline muted></video><div id="ct"></div><div class="bar"><button id="mute">Mute</button><button id="end" class="end">End</button></div></div>
 <div id="toast" hidden></div>
 
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,collection,addDoc,query,orderBy,limit,onSnapshot,updateDoc,doc,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,collection,addDoc,query,orderBy,limit,onSnapshot,updateDoc,doc,setDoc,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const app=initializeApp({
   apiKey:"AIzaSyCZ7hKl47t37boj-trqSJ8mALwpjrANPcY",
@@ -81,32 +91,37 @@ const app=initializeApp({
 });
 const auth=getAuth(app), db=getFirestore(app);
 const $=id=>document.getElementById(id);
-let me=null, unsub=null, first=true;
+let me=null, unsub=null, first=true, unsubCall=null, unsubCand=null;
+const callRef=doc(db,"calls","current");
+const ICE={iceServers:[{urls:["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"]}]};
+let pc=null, stream=null, callId=null, ringing=null, pend=[];
 
 if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 
 function say(t){const e=$("toast");e.textContent=t;e.hidden=false;setTimeout(()=>e.hidden=true,3500)}
 function ding(){try{const c=new AudioContext(),o=c.createOscillator(),g=c.createGain();o.frequency.value=660;o.connect(g);g.connect(c.destination);g.gain.setValueAtTime(.15,c.currentTime);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+1.2);o.start();o.stop(c.currentTime+1.2)}catch(e){}}
-const fail=e=>{$("err").textContent="പരാജയപ്പെട്ടു: "+(e.code||e.message)};
+const fail=e=>{$("err").textContent="Failed: "+(e.code||e.message)};
 
 $("login").onclick=()=>signInWithEmailAndPassword(auth,$("em").value.trim(),$("pw").value).catch(fail);
 $("signup").onclick=()=>createUserWithEmailAndPassword(auth,$("em").value.trim(),$("pw").value).catch(fail);
 $("out").onclick=()=>signOut(auth);
-$("idbtn").onclick=async()=>{try{await navigator.clipboard.writeText(me.uid);say("ഐഡി കോപ്പി ചെയ്തു")}catch(e){prompt("നിങ്ങളുടെ ഐഡി:",me.uid)}};
+$("idbtn").onclick=async()=>{try{await navigator.clipboard.writeText(me.uid);say("ID copied")}catch(e){prompt("Your ID:",me.uid)}};
 
 onAuthStateChanged(auth,u=>{
   me=u; $("auth").hidden=!!u; $("chat").hidden=!u;
   if(unsub){unsub();unsub=null}
+  if(unsubCall){unsubCall();unsubCall=null}
   if(u){first=true;start()}
 });
 
 function start(){
+  unsubCall=onSnapshot(callRef,s=>handleCall(s.exists()?s.data():null),()=>{});
   const q=query(collection(db,"chat"),orderBy("at"),limit(300));
   unsub=onSnapshot(q,snap=>{
     const list=$("list"); list.innerHTML="";
     snap.forEach(d=>{
       const m=d.data(), mine=m.from===me.uid, el=document.createElement("div");
-      if(m.type==="miss"){el.className="m miss "+(mine?"me":"them");el.textContent=mine?"💗 മിസ് യു അയച്ചു":"💗 മിസ് യു"}
+      if(m.type==="miss"){el.className="m miss "+(mine?"me":"them");el.textContent=mine?"💗 You sent: miss you":"💗 Miss you"}
       else{
         el.className="m "+(mine?"me":"them")+(m.seen?" seen":"");
         el.append(document.createTextNode(m.text));
@@ -117,19 +132,19 @@ function start(){
         updateDoc(doc(db,"chat",d.id),{seen:serverTimestamp()}).catch(()=>{});
       }
     });
-    if(!snap.size){list.innerHTML='<div id="note">ആദ്യത്തെ സന്ദേശം അയക്കൂ.</div>'}
+    if(!snap.size){list.innerHTML='<div id="note">Send the first message.</div>'}
     list.scrollTop=list.scrollHeight;
     if(!first){
       snap.docChanges().forEach(c=>{
         const m=c.doc.data();
         if(c.type==="added"&&m.type==="miss"&&m.from!==me.uid&&!c.doc.metadata.hasPendingWrites){
-          navigator.vibrate&&navigator.vibrate([200,100,200,100,500]); ding(); say("💗 മിസ് യു");
+          navigator.vibrate&&navigator.vibrate([200,100,200,100,500]); ding(); say("💗 Miss you");
         }
       });
     }
     first=false;
   },e=>{
-    $("list").innerHTML='<div id="note">ഡാറ്റ കാണാൻ അനുവാദമില്ല. Firebase rules സെറ്റ് ചെയ്യണം.</div>';
+    $("list").innerHTML='<div id="note">No access to the data yet. The Firebase rules still need to be set.</div>';
     console.error(e);
   });
 }
@@ -140,12 +155,78 @@ $("f").onsubmit=async e=>{
   e.preventDefault();
   const t=$("msg").value.trim(); if(!t) return;
   $("msg").value="";
-  addDoc(collection(db,"chat"),{type:"text",text:t,from:me.uid,at:serverTimestamp(),seen:null}).catch(()=>say("അയക്കാൻ പറ്റിയില്ല"));
+  addDoc(collection(db,"chat"),{type:"text",text:t,from:me.uid,at:serverTimestamp(),seen:null}).catch(()=>say("Couldn't send"));
 };
 $("miss").onclick=()=>{
   navigator.vibrate&&navigator.vibrate(60);
-  addDoc(collection(db,"chat"),{type:"miss",text:"",from:me.uid,at:serverTimestamp(),seen:null}).then(()=>say("മിസ് യു അയച്ചു 💗")).catch(()=>say("അയക്കാൻ പറ്റിയില്ല"));
+  addDoc(collection(db,"chat"),{type:"miss",text:"",from:me.uid,at:serverTimestamp(),seen:null}).then(()=>say("Miss you sent 💗")).catch(()=>say("Couldn't send"));
 };
+
+/* ---- calls (WebRTC, signalling through Firestore) ---- */
+function fresh(d){return !d.at||Date.now()-d.at.toMillis()<60000}
+function handleCall(d){
+  if(!d||d.state==="ended"){
+    if(ringing&&(!d||d.id===ringing.id)){ringing=null;$("ring").hidden=true}
+    if(pc&&(!d||d.id===callId))endLocal();
+    return;
+  }
+  if(!fresh(d)) return;
+  if(d.state==="ringing"&&d.from!==me.uid&&!pc&&!ringing){
+    ringing=d;$("rt").textContent=d.kind==="video"?"Incoming video call":"Incoming voice call";$("ring").hidden=false;
+    navigator.vibrate&&navigator.vibrate([400,200,400,200,400]);ding();
+  }
+  if(d.state==="active"&&pc&&d.id===callId&&d.answer&&!pc.remoteDescription){
+    pc.setRemoteDescription(d.answer).then(flush).catch(()=>{});
+  }
+}
+async function flush(){while(pend.length){try{await pc.addIceCandidate(pend.shift())}catch(e){}}}
+function setupPc(){
+  pc=new RTCPeerConnection(ICE); pend=[];
+  stream.getTracks().forEach(t=>pc.addTrack(t,stream));
+  pc.ontrack=e=>{$("rv").srcObject=e.streams[0]};
+  const id=callId;
+  pc.onicecandidate=e=>{if(e.candidate)addDoc(collection(db,"calls","current","cands"),{callId:id,from:me.uid,c:JSON.stringify(e.candidate)}).catch(()=>{})};
+  pc.onconnectionstatechange=()=>{if(pc&&(pc.connectionState==="failed"||pc.connectionState==="closed")){say("Call disconnected");endLocal()}};
+  $("lv").srcObject=stream;
+  unsubCand=onSnapshot(collection(db,"calls","current","cands"),s=>s.docChanges().forEach(ch=>{
+    if(ch.type!=="added")return;
+    const d=ch.doc.data(); if(d.callId!==callId||d.from===me.uid||!pc)return;
+    const c=JSON.parse(d.c);
+    if(pc.remoteDescription)pc.addIceCandidate(c).catch(()=>{}); else pend.push(c);
+  }));
+}
+function showCall(kind){$("ct").textContent=kind==="audio"?"Voice call":"";$("mute").textContent="Mute";$("call").hidden=false}
+async function startCall(kind){
+  if(pc||ringing)return;
+  try{stream=await navigator.mediaDevices.getUserMedia({audio:true,video:kind==="video"})}catch(e){say("Allow camera / mic to call");return}
+  callId=String(Date.now()); setupPc();
+  const o=await pc.createOffer(); await pc.setLocalDescription(o);
+  let ok=true;
+  await setDoc(callRef,{id:callId,from:me.uid,kind,state:"ringing",offer:{type:o.type,sdp:o.sdp},answer:null,at:serverTimestamp()}).catch(()=>{ok=false});
+  if(!ok){say("Couldn't start call yet");endLocal();return}
+  showCall(kind);
+}
+async function answerCall(){
+  const d=ringing; ringing=null; $("ring").hidden=true; if(!d)return;
+  try{stream=await navigator.mediaDevices.getUserMedia({audio:true,video:d.kind==="video"})}catch(e){say("Allow camera / mic to call");updateDoc(callRef,{state:"ended"}).catch(()=>{});return}
+  callId=d.id; setupPc();
+  await pc.setRemoteDescription(d.offer);
+  const a=await pc.createAnswer(); await pc.setLocalDescription(a);
+  await updateDoc(callRef,{answer:{type:a.type,sdp:a.sdp},state:"active"}).catch(()=>{});
+  await flush(); showCall(d.kind);
+}
+function endLocal(){
+  if(unsubCand){unsubCand();unsubCand=null}
+  if(pc){try{pc.close()}catch(e){}pc=null}
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+  $("rv").srcObject=null;$("lv").srcObject=null;$("call").hidden=true;callId=null;
+}
+$("vc").onclick=()=>startCall("audio");
+$("vd").onclick=()=>startCall("video");
+$("ans").onclick=answerCall;
+$("dec").onclick=()=>{ringing=null;$("ring").hidden=true;updateDoc(callRef,{state:"ended"}).catch(()=>{})};
+$("end").onclick=()=>{updateDoc(callRef,{state:"ended"}).catch(()=>{});endLocal()};
+$("mute").onclick=()=>{const t=stream&&stream.getAudioTracks()[0];if(!t)return;t.enabled=!t.enabled;$("mute").textContent=t.enabled?"Mute":"Unmute"};
 </script>
 </body>
 </html>
