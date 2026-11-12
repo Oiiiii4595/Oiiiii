@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#1a1322">
+<meta name="theme-color" content="#000000">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<title>Oiiiii</title>
+<title>Clock</title>
 <style>
 :root{--bg:#1a1322;--panel:#251a30;--theirs:#2f2340;--mine:#d4546f;--text:#f4eaf1;--muted:#a493b0;--ok:#ffd9e2}
 *{box-sizing:border-box}
@@ -70,9 +70,40 @@ form input{flex:1;border-radius:22px}
 #pmenu{position:fixed;right:64px;bottom:calc(74px + env(safe-area-inset-bottom));z-index:15;display:flex;flex-direction:column;background:#33263f;border-radius:14px;padding:6px;box-shadow:0 6px 24px rgba(0,0,0,.5)}
 #pmenu button{padding:12px 20px;text-align:left;border-radius:10px;background:transparent;font-size:1rem}
 #pmenu button:active{background:#46335a}
+#cover{position:fixed;inset:0;z-index:40;background:#0b0b0d;color:#eee;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
+#cover[hidden]{display:none}
+.ctabs{display:flex;justify-content:space-around;border-bottom:1px solid #222}
+.ctabs button{background:transparent;color:#888;padding:16px 8px;font-size:.95rem;border-bottom:3px solid transparent}
+.ctabs button.on{color:#f4a340;border-color:#f4a340}
+#cover section{flex:1;overflow:auto;padding:24px 24px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column}
+#cover section[hidden]{display:none}
+.bigt{font:300 3.2rem/1.1 system-ui,sans-serif;text-align:center;margin:18px 0 4px;font-variant-numeric:tabular-nums}
+.dim{text-align:center;color:#888;margin-bottom:22px}
+.row{display:flex;justify-content:space-between;padding:16px 4px;border-bottom:1px solid #1d1d20;font-size:1.1rem}
+.row b{font-weight:400;color:#ddd;font-variant-numeric:tabular-nums}
+.pk{display:flex;justify-content:center;align-items:center;gap:6px;margin-top:30px;position:relative}
+.pc{height:132px;width:84px;overflow-y:scroll;scroll-snap-type:y mandatory;scroll-padding-top:44px;padding:44px 0;scrollbar-width:none;text-align:center}
+.pc::-webkit-scrollbar{display:none}
+.pc div{height:44px;line-height:44px;font-size:1.9rem;scroll-snap-align:start;color:#999}
+.pk b{font-size:1.9rem;color:#666}
+.pk::after{content:"";position:absolute;left:8%;right:8%;top:44px;height:44px;border-top:1px solid #333;border-bottom:1px solid #333;pointer-events:none}
+.lbl{display:flex;justify-content:center;gap:52px;color:#777;font-size:.8rem;margin-top:6px}
+.cbtns{display:flex;justify-content:center;gap:24px;margin-top:40px}
+.go{background:#f4a340;color:#111;width:96px;height:96px;border-radius:50%;font-weight:600;font-size:1rem}
+.go.gray{background:#2a2a2e;color:#ddd}
 </style>
 </head>
 <body>
+<div id="cover">
+  <div class="ctabs"><button class="on" data-t="wc">World Clock</button><button data-t="tm">Timer</button><button data-t="sw">Stopwatch</button></div>
+  <section id="wc"></section>
+  <section id="tm" hidden>
+    <div id="tmpick"><div class="pk"><div id="ph" class="pc"></div><b>:</b><div id="pm" class="pc"></div><b>:</b><div id="ps" class="pc"></div></div><div class="lbl"><span>h</span><span>min</span><span>sec</span></div></div>
+    <div id="tmrun" class="bigt" hidden>00:00:00</div>
+    <div class="cbtns"><button id="tmgo" class="go">Start</button><button id="tmstop" class="go" hidden>Cancel</button></div>
+  </section>
+  <section id="sw" hidden><div id="swt" class="bigt">00:00.00</div><div class="cbtns"><button id="swrs" class="go gray">Reset</button><button id="swgo" class="go">Start</button></div></section>
+</div>
 <main id="auth" hidden>
   <h1>Oiiiii</h1>
   <p>Just the two of us.</p>
@@ -317,15 +348,63 @@ async function sha(t){const b=await crypto.subtle.digest("SHA-256",new TextEncod
 function pinGet(){try{return localStorage.getItem("pin")}catch(e){return null}}
 function showLock(){if(!pinGet())return;$("lock").hidden=false;$("pin").value="";$("lockmsg").textContent="";setTimeout(()=>$("pin").focus(),60)}
 $("pin").oninput=async()=>{const v=$("pin").value;if(v.length<4)return;if(await sha(v)===pinGet()){$("lock").hidden=true}else{$("lockmsg").textContent="Wrong PIN"}$("pin").value=""};
+/* ---- cover screen: a normal-looking clock app; the secret timer time opens the real app ---- */
+const CITIES=[["Kochi","Asia/Kolkata"],["London","Europe/London"],["New York","America/New_York"],["Dubai","Asia/Dubai"],["Tokyo","Asia/Tokyo"],["Sydney","Australia/Sydney"]];
+let cvTab="wc",tmId=null,tmEnd=0,swT=0,swRun=false,swStart=0,swId=null;
+const p2=n=>String(n).padStart(2,"0");
+const fmtT=t=>p2(Math.floor(t/3600))+":"+p2(Math.floor(t%3600/60))+":"+p2(t%60);
+function wcDraw(){
+  if($("cover").hidden||cvTab!=="wc")return;
+  const now=new Date();
+  let h='<div class="bigt">'+now.toLocaleTimeString("en-GB")+'</div><div class="dim">'+now.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})+'</div>';
+  CITIES.forEach(c=>{h+='<div class="row"><span>'+c[0]+'</span><b>'+now.toLocaleTimeString("en-GB",{timeZone:c[1],hour:"2-digit",minute:"2-digit"})+'</b></div>'});
+  $("wc").innerHTML=h;
+}
+setInterval(wcDraw,1000);wcDraw();
+document.querySelectorAll(".ctabs button").forEach(b=>b.onclick=()=>{
+  cvTab=b.dataset.t;
+  document.querySelectorAll(".ctabs button").forEach(x=>x.classList.toggle("on",x===b));
+  ["wc","tm","sw"].forEach(i=>$(i).hidden=i!==cvTab);wcDraw();
+});
+function fillCol(id,n){let h="";for(let i=0;i<n;i++)h+="<div>"+p2(i)+"</div>";$(id).innerHTML=h}
+fillCol("ph",24);fillCol("pm",60);fillCol("ps",60);
+const pv=id=>Math.round($(id).scrollTop/44);
+function secGet(){try{return localStorage.getItem("secret")}catch(e){return null}}
+async function secretOk(t){const h=secGet();return h?(await sha("t"+t))===h:t===754}
+function tmReset(){if(tmId){clearInterval(tmId);tmId=null}$("tmpick").hidden=false;$("tmrun").hidden=true;$("tmgo").hidden=false;$("tmstop").hidden=true}
+$("tmgo").onclick=async()=>{
+  const t=pv("ph")*3600+pv("pm")*60+pv("ps"); if(!t)return;
+  if(await secretOk(t)){["ph","pm","ps"].forEach(i=>$(i).scrollTop=0);$("cover").hidden=true;showLock();return}
+  tmEnd=Date.now()+t*1000;$("tmpick").hidden=true;$("tmrun").hidden=false;$("tmgo").hidden=true;$("tmstop").hidden=false;
+  tmId=setInterval(()=>{
+    const left=Math.ceil((tmEnd-Date.now())/1000);
+    if(left<=0){clearInterval(tmId);tmId=null;$("tmrun").textContent="00:00:00";ding();setTimeout(ding,900);setTimeout(ding,1800);setTimeout(tmReset,3500);return}
+    $("tmrun").textContent=fmtT(left);
+  },250);
+};
+$("tmstop").onclick=tmReset;
+function swShow(){const ms=swRun?Date.now()-swStart+swT:swT;$("swt").textContent=p2(Math.floor(ms/60000))+":"+p2(Math.floor(ms/1000)%60)+"."+p2(Math.floor(ms%1000/10))}
+$("swgo").onclick=()=>{if(swRun){swT+=Date.now()-swStart;swRun=false;clearInterval(swId);$("swgo").textContent="Start"}else{swStart=Date.now();swRun=true;swId=setInterval(swShow,50);$("swgo").textContent="Stop"}swShow()};
+$("swrs").onclick=()=>{if(swRun)return;swT=0;swShow()};
+function showCover(){$("lock").hidden=true;tmReset();$("cover").hidden=false;wcDraw()}
+
 $("lockbtn").onclick=async()=>{
-  const v=prompt("Set a 4-digit PIN (leave empty to remove the lock):");if(v===null)return;
-  try{if(v===""){localStorage.removeItem("pin");say("Lock removed");return}
-  if(!/^\d{4}$/.test(v)){say("Use exactly 4 digits");return}
-  localStorage.setItem("pin",await sha(v));say("Lock set")}catch(e){say("Couldn't set lock")}
+  const t=prompt("Secret timer time as HH:MM:SS, for example 00:12:34.\nLeave empty to keep the current one:");
+  if(t===null)return;
+  try{
+    if(t!==""){
+      const m=/^(\d{1,2}):(\d{2}):(\d{2})$/.exec(t.trim());
+      if(!m||+m[1]>23||+m[2]>59||+m[3]>59||(+m[1]+ +m[2]+ +m[3])===0){say("Use HH:MM:SS");return}
+      localStorage.setItem("secret",await sha("t"+(+m[1]*3600+ +m[2]*60+ +m[3])));say("Secret time set");
+    }
+    const v=prompt("Set a 4-digit PIN (leave empty to remove the PIN):");if(v===null)return;
+    if(v===""){localStorage.removeItem("pin");say("PIN removed");return}
+    if(!/^\d{4}$/.test(v)){say("Use exactly 4 digits");return}
+    localStorage.setItem("pin",await sha(v));say("PIN set");
+  }catch(e){say("Couldn't save")}
 };
 let hiddenAt=0;
-document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")hiddenAt=Date.now();else if(Date.now()-hiddenAt>30000)showLock()});
-showLock();
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")hiddenAt=Date.now();else if(Date.now()-hiddenAt>30000)showCover()});
 </script>
 </body>
 </html>
